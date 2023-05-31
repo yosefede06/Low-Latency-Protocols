@@ -879,3 +879,26 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+/*Connect to server*/
+int kv_open(char *servername, void **kv_handle) {
+    n = getaddrinfo(servername, service, &hints, &res);
+    return 0;
+}
+
+int kv_set(void *kv_handle, const char *key, const char *value) {
+
+}
+
+int kv_get(void *kv_handle, const char *key, char **value) {
+
+}
+/* Called after get() on value pointer */
+void kv_release(char *value) {
+
+}
+
+/* Destroys the QP */
+int kv_close(void *kv_handle) {
+    return 0;
+}
+
