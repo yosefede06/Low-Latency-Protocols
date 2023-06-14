@@ -58,6 +58,8 @@ enum {
 
 static int page_size;
 
+int argc_global;
+char **argv_global;
 
 struct pingpong_context {
     struct ibv_context		*context;
@@ -212,8 +214,8 @@ static struct pingpong_dest *pp_client_exch_dest(const char *servername, int por
         free(service);
         return NULL;
     }
-
     for (t = res; t; t = t->ai_next) {
+
         sockfd = socket(t->ai_family, t->ai_socktype, t->ai_protocol);
         if (sockfd >= 0) {
             if (!connect(sockfd, t->ai_addr, t->ai_addrlen))
@@ -613,16 +615,13 @@ static void usage(const char *argv0)
     printf("  -e, --events           sleep on CQ events (default poll)\n");
     printf("  -g, --gid-idx=<gid index> local port gid index\n");
 }
-
-int main(int argc, char *argv[])
-{
+int connect_main(char *servername, int argc, char *argv[], struct pingpong_context **save_ctx){
     struct ibv_device      **dev_list;
     struct ibv_device       *ib_dev;
     struct pingpong_context *ctx;
     struct pingpong_dest     my_dest;
     struct pingpong_dest    *rem_dest;
     char                    *ib_devname = NULL;
-    char                    *servername;
     int                      port = 4792;
     int                      ib_port = 1;
     enum ibv_mtu             mtu = IBV_MTU_2048;
@@ -718,12 +717,12 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (optind == argc - 1)
-        servername = strdup(argv[optind]);
-    else if (optind < argc) {
-        usage(argv[0]);
-        return 1;
-    }
+//    if (optind == argc - 1)
+//        servername = strdup(argv[optind]);
+//    else if (optind < argc) {
+//        usage(argv[0]);
+//        return 1;
+//    }
 
     page_size = sysconf(_SC_PAGESIZE);
 
@@ -794,8 +793,9 @@ int main(int argc, char *argv[])
 //           my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
 
-    if (servername)
+    if (servername) {
         rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+    }
     else
         rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
 
@@ -809,80 +809,76 @@ int main(int argc, char *argv[])
     if (servername)
         if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
             return 1;
-
-    if (servername) {
-        for (long int message_size = 1;  message_size <= size; message_size*=2) {
-            ctx->size = message_size;
-            long int i;
-            // warm up
-            for (int j = 0; j < warm_up_iters; j += rx_depth) {
-                pp_post_send(ctx, tx_depth);
-                if (pp_wait_completions(ctx, tx_depth, message_size)) {
-                    printf("%s", "Error completions");
-                    return 1;
-                }
-            }
-            // end warm up
-            clock_t start_time = clock();
-            for (i = 0; i < iters; i+=tx_depth) {
-                if (pp_post_send(ctx, tx_depth) != rx_depth) {
-                    printf("%d%s", rx_depth, "Error server send");
-                }
-                if(pp_wait_completions(ctx, tx_depth, message_size)) {
-                    printf("%s", "Error completions");
-                    return 1;
-                }
-            }
-            pp_post_recv(ctx, 1);
-            pp_wait_completions(ctx, 1, 1);
-            clock_t end_time = clock();
-            long double diff_time = (long double) (end_time - start_time) / CLOCKS_PER_SEC;
-            long double gb_unit = iters * message_size / pow(1024, 3);
-            long double throughput = gb_unit / diff_time;
-            printf("%ld\t%Lf\t%s\n", message_size, throughput, "Gigabytes/Second");
-
-
-        }
-//        printf("Client Done.\n");
-    } else {
-        for (int message_size = 1;  message_size <= size; message_size*=2) {
-            ctx->size = size;
-            long int i;
-            // warm up
-            for (int j = 0; j < warm_up_iters; j += rx_depth, message_size) {
-                pp_post_recv(ctx, rx_depth);
-                if (pp_wait_completions(ctx, rx_depth, message_size)) {
-                    printf("%s", "Error completions");
-                    return 1;
-                }
-            }
-            // end warm up
-
-            for (i = 0; i < iters; i+=rx_depth) {
-                if (pp_post_recv(ctx, rx_depth) != rx_depth) {
-//                    printf("%d%s", rx_depth, "Error server received");
-                }
-                if (pp_wait_completions(ctx, rx_depth, message_size)) {
-                    printf("%s", "Error completions");
-                    return 1;
-                }
-            }
-            ctx->size = 1;
-            pp_post_send(ctx, 1);
-            pp_wait_completions(ctx, 1, 1);
-        }
-        printf("Server Done.\n");
-    }
-
+    *save_ctx = ctx;
     ibv_free_device_list(dev_list);
     free(rem_dest);
     return 0;
 }
 
+typedef struct dict_entry_s {
+    const char *key;
+    char *value;
+} dict_entry_s;
+
+typedef struct dict_s {
+    int len;
+    int cap;
+    dict_entry_s *entry;
+} dict_s, *dict_t;
+
+int dict_find_index(dict_t dict, const char *key) {
+    for (int i = 0; i < dict->len; i++) {
+        if (!strcmp(dict->entry[i].key, key)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+char * dict_find(dict_t dict, const char *key) {
+    int idx = dict_find_index(dict, key);
+    if (idx != -1) {
+        return "";
+    }
+    return dict->entry[idx].value;
+}
+
+void dict_add(dict_t dict, const char *key, char *value) {
+    int idx = dict_find_index(dict, key);
+    if (idx != -1) {
+        dict->entry[idx].value = value;
+        return;
+    }
+    if (dict->len == dict->cap) {
+        dict->cap *= 2;
+        dict->entry = realloc(dict->entry, dict->cap * sizeof(dict_entry_s));
+    }
+    dict->entry[dict->len].key = strdup(key);
+    dict->entry[dict->len].value = value;
+    dict->len++;
+}
+
+dict_t dict_new(void) {
+    dict_s proto = {0, 10, malloc(10 * sizeof(dict_entry_s))};
+    dict_t d = malloc(sizeof(dict_s));
+    *d = proto;
+    return d;
+}
+
+void dict_free(dict_t dict) {
+    for (int i = 0; i < dict->len; i++) {
+        free(dict->entry[i].key);
+    }
+    free(dict->entry);
+    free(dict);
+}
+
 /*Connect to server*/
 int kv_open(char *servername, void **kv_handle) {
-    n = getaddrinfo(servername, service, &hints, &res);
-    return 0;
+    return connect_main(servername,
+                        argc_global,
+                        argv_global,
+                        (struct pingpong_context **)kv_handle);
 }
 
 int kv_set(void *kv_handle, const char *key, const char *value) {
@@ -902,3 +898,18 @@ int kv_close(void *kv_handle) {
     return 0;
 }
 
+int main(int argc, char **argv)
+{
+    argc_global = argc;
+    argv_global = argv;
+    char *servername;
+    if (optind == argc - 1)
+        servername = strdup(argv[optind]);
+    else if (optind < argc) {
+        usage(argv[0]);
+        return 1;
+    }
+    void *kv_handle[1];
+    kv_open(servername, kv_handle);
+    printf("%s", servername);
+}
