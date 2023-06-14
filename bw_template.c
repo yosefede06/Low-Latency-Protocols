@@ -56,6 +56,8 @@ enum {
     PINGPONG_SEND_WRID = 2,
 };
 
+#define MAX_ENTRIES 100
+
 static int page_size;
 
 int argc_global;
@@ -815,64 +817,6 @@ int connect_main(char *servername, int argc, char *argv[], struct pingpong_conte
     return 0;
 }
 
-typedef struct dict_entry_s {
-    const char *key;
-    char *value;
-} dict_entry_s;
-
-typedef struct dict_s {
-    int len;
-    int cap;
-    dict_entry_s *entry;
-} dict_s, *dict_t;
-
-int dict_find_index(dict_t dict, const char *key) {
-    for (int i = 0; i < dict->len; i++) {
-        if (!strcmp(dict->entry[i].key, key)) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-char * dict_find(dict_t dict, const char *key) {
-    int idx = dict_find_index(dict, key);
-    if (idx != -1) {
-        return "";
-    }
-    return dict->entry[idx].value;
-}
-
-void dict_add(dict_t dict, const char *key, char *value) {
-    int idx = dict_find_index(dict, key);
-    if (idx != -1) {
-        dict->entry[idx].value = value;
-        return;
-    }
-    if (dict->len == dict->cap) {
-        dict->cap *= 2;
-        dict->entry = realloc(dict->entry, dict->cap * sizeof(dict_entry_s));
-    }
-    dict->entry[dict->len].key = strdup(key);
-    dict->entry[dict->len].value = value;
-    dict->len++;
-}
-
-dict_t dict_new(void) {
-    dict_s proto = {0, 10, malloc(10 * sizeof(dict_entry_s))};
-    dict_t d = malloc(sizeof(dict_s));
-    *d = proto;
-    return d;
-}
-
-void dict_free(dict_t dict) {
-    for (int i = 0; i < dict->len; i++) {
-        free(dict->entry[i].key);
-    }
-    free(dict->entry);
-    free(dict);
-}
-
 /*Connect to server*/
 int kv_open(char *servername, void **kv_handle) {
     return connect_main(servername,
@@ -881,13 +825,78 @@ int kv_open(char *servername, void **kv_handle) {
                         (struct pingpong_context **)kv_handle);
 }
 
-int kv_set(void *kv_handle, const char *key, const char *value) {
 
+struct kv_entry {
+    char * key;
+    char * value;
+};
+
+struct kv_database {
+    struct kv_entry entries[MAX_ENTRIES];
+    int count;
+};
+
+
+int find_entry_index(const char *key) {
+    for (int i = 0; i < database.count; i++) {
+        if (strcmp(database.entries[i].key, key) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int kv_set(void *kv_handle, const char *key, const char *value) {
+    struct pingpong_context *ctx = kv_handle;
+
+    // Find if the key already exists in the database
+    int index = find_entry_index(key);
+    if (index == -1) {
+        // Key not found, create a new entry
+        if (database.count >= MAX_ENTRIES) {
+            fprintf(stderr, "Error: Database is full, cannot add new entry\n");
+            return -1;
+        }
+        index = database.count;
+        database.count++;
+    }
+    size_t size_value = strlen(database.entries[index].value);
+    size_t size_key = strlen(database.entries[index].key);
+//    Change the size of the context to be key + value
+    ctx->size = size_key + size_value;
+    database.entries[index].key = calloc(size_key, sizeof(size_t));
+    database.entries[index].value = calloc(size_value, sizeof(size_t));
+    // Update the value
+    strncpy(database.entries[index].key, key, size_key);
+    strncpy(database.entries[index].value, value, size_value);
+    return 0;
 }
 
 int kv_get(void *kv_handle, const char *key, char **value) {
+    struct pingpong_context *ctx = kv_handle;
 
+    // Find the entry in the database
+    int index = find_entry_index(key);
+
+    // Get the size of the value
+    if (index == -1) {
+        fprintf(stderr, "Error: Key not found in the database\n");
+        return -1;
+    }
+    size_t size = strlen(database.entries[index].value);
+    // Allocate memory for the value
+    char *result = malloc(size + 1);
+    if (result == NULL) {
+        fprintf(stderr, "Error: Failed to allocate memory for value\n");
+        return -1;
+    }
+    // Copy the value to the result
+    strncpy(result, database.entries[index].value, size);
+    *value = result;
+
+    return 0;
 }
+
 /* Called after get() on value pointer */
 void kv_release(char *value) {
 
@@ -897,7 +906,14 @@ void kv_release(char *value) {
 int kv_close(void *kv_handle) {
     return 0;
 }
-
+void handle_kv_requests(void *kv_handle, struct kv_database* database) {
+    struct pingpong_context *ctx = kv_handle;
+    ctx->size = MAXIMUM_SIZE;
+    while (1) {
+//        pp_post_recv(ctx, 1);
+//        pp_wait_completions(ctx, 1, 1);
+    }
+}
 int main(int argc, char **argv)
 {
     argc_global = argc;
@@ -911,5 +927,13 @@ int main(int argc, char **argv)
     }
     void *kv_handle[1];
     kv_open(servername, kv_handle);
+    if (servername) {
+//        client code
+
+    }
+    else {
+        struct kv_database * database = calloc(1, sizeof(struct kv_database));
+        handle_kv_requests(kv_handle, database);
+    }
     printf("%s", servername);
 }
