@@ -55,9 +55,9 @@ enum {
     PINGPONG_RECV_WRID = 1,
     PINGPONG_SEND_WRID = 2,
 };
-
-#define MAX_ENTRIES 100
-
+struct packet {
+    char * message;
+};
 static int page_size;
 
 int argc_global;
@@ -70,7 +70,7 @@ struct pingpong_context {
     struct ibv_mr		*mr;
     struct ibv_cq		*cq;
     struct ibv_qp		*qp;
-    void			*buf;
+    struct packet			*buf;
     long int				size;
     int				rx_depth;
     int				routs;
@@ -825,78 +825,13 @@ int kv_open(char *servername, void **kv_handle) {
                         (struct pingpong_context **)kv_handle);
 }
 
-
-struct kv_entry {
-    char * key;
-    char * value;
-};
-
-struct kv_database {
-    struct kv_entry entries[MAX_ENTRIES];
-    int count;
-};
-
-
-int find_entry_index(const char *key) {
-    for (int i = 0; i < database.count; i++) {
-        if (strcmp(database.entries[i].key, key) == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
 int kv_set(void *kv_handle, const char *key, const char *value) {
-    struct pingpong_context *ctx = kv_handle;
 
-    // Find if the key already exists in the database
-    int index = find_entry_index(key);
-    if (index == -1) {
-        // Key not found, create a new entry
-        if (database.count >= MAX_ENTRIES) {
-            fprintf(stderr, "Error: Database is full, cannot add new entry\n");
-            return -1;
-        }
-        index = database.count;
-        database.count++;
-    }
-    size_t size_value = strlen(database.entries[index].value);
-    size_t size_key = strlen(database.entries[index].key);
-//    Change the size of the context to be key + value
-    ctx->size = size_key + size_value;
-    database.entries[index].key = calloc(size_key, sizeof(size_t));
-    database.entries[index].value = calloc(size_value, sizeof(size_t));
-    // Update the value
-    strncpy(database.entries[index].key, key, size_key);
-    strncpy(database.entries[index].value, value, size_value);
-    return 0;
 }
 
 int kv_get(void *kv_handle, const char *key, char **value) {
-    struct pingpong_context *ctx = kv_handle;
 
-    // Find the entry in the database
-    int index = find_entry_index(key);
-
-    // Get the size of the value
-    if (index == -1) {
-        fprintf(stderr, "Error: Key not found in the database\n");
-        return -1;
-    }
-    size_t size = strlen(database.entries[index].value);
-    // Allocate memory for the value
-    char *result = malloc(size + 1);
-    if (result == NULL) {
-        fprintf(stderr, "Error: Failed to allocate memory for value\n");
-        return -1;
-    }
-    // Copy the value to the result
-    strncpy(result, database.entries[index].value, size);
-    *value = result;
-
-    return 0;
 }
-
 /* Called after get() on value pointer */
 void kv_release(char *value) {
 
@@ -906,14 +841,9 @@ void kv_release(char *value) {
 int kv_close(void *kv_handle) {
     return 0;
 }
-void handle_kv_requests(void *kv_handle, struct kv_database* database) {
-    struct pingpong_context *ctx = kv_handle;
-    ctx->size = MAXIMUM_SIZE;
-    while (1) {
-//        pp_post_recv(ctx, 1);
-//        pp_wait_completions(ctx, 1, 1);
-    }
-}
+
+
+
 int main(int argc, char **argv)
 {
     argc_global = argc;
@@ -925,15 +855,37 @@ int main(int argc, char **argv)
         usage(argv[0]);
         return 1;
     }
-    void *kv_handle[1];
-    kv_open(servername, kv_handle);
-    if (servername) {
-//        client code
+    void *kv_handle;
 
+    if (servername) {
+        kv_open(servername, &kv_handle);
+        struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+        ctx->size = 1;
+        if (pp_post_send(ctx, 1) != 1) {
+            printf("%d%s", 1, "Error server send");
+        }
+        if(pp_wait_completions(ctx, 1, 1)) {
+            printf("%s", "Error completions");
+            return 1;
+        }
+        while (1) {}
     }
     else {
-        struct kv_database * database = calloc(1, sizeof(struct kv_database));
-        handle_kv_requests(kv_handle, database);
+        while (1) {
+            kv_open(servername, &kv_handle);
+            struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+            ctx->size = 1;
+            if (pp_post_recv(ctx, 1) != 1) {
+                printf("%d%s", 1, "Error server received");
+                return 1;
+            }
+            if (pp_wait_completions(ctx, 1, 1)) {
+                printf("%s", "Error completions");
+                return 1;
+            }
+            printf("%s\n", "message received");
+            fflush( stdout );
+        }
+
     }
-    printf("%s", servername);
 }
