@@ -50,13 +50,32 @@
 
 #define WC_BATCH (1)
 #define MAXIMUM_SIZE (1048576L)
-
+#define BITS_4_KB (32000)
+#define MAX_SIZE_MAPPING (100);
 enum {
     PINGPONG_RECV_WRID = 1,
     PINGPONG_SEND_WRID = 2,
 };
+enum REQUEST {
+    GET,
+    SET
+};
+
+enum PROTOCOL {
+    EAGER,
+    RENDEZVOUS
+};
 struct packet {
-    char * message;
+    char value[BITS_4_KB];
+    char response_value[BITS_4_KB];
+    char key[BITS_4_KB];
+    enum REQUEST request_type;
+    enum PROTOCOL protocol_type;
+};
+
+struct Database {
+    struct packet map[100];
+    int curr_size;
 };
 static int page_size;
 
@@ -70,7 +89,7 @@ struct pingpong_context {
     struct ibv_mr		*mr;
     struct ibv_cq		*cq;
     struct ibv_qp		*qp;
-    struct packet			*buf;
+    void					*buf;
     long int				size;
     int				rx_depth;
     int				routs;
@@ -314,7 +333,7 @@ static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx,
         return NULL;
     }
 
-    listen(sockfd, 1);
+    listen(sockfd, 2);
     connfd = accept(sockfd, NULL, 0);
     close(sockfd);
     if (connfd < 0) {
@@ -524,10 +543,9 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
     return i;
 }
 
-static int pp_post_send(struct pingpong_context *ctx, int n)
-{
+static int pp_post_send(struct pingpong_context *ctx, int n) {
     struct ibv_sge list = {
-            .addr	= (uint64_t)ctx->buf,
+            .addr	= (uintptr_t)ctx->buf,
             .length = ctx->size,
             .lkey	= ctx->mr->lkey
     };
@@ -817,6 +835,33 @@ int connect_main(char *servername, int argc, char *argv[], struct pingpong_conte
     return 0;
 }
 
+
+int send_packet(struct pingpong_context *ctx) {
+    ctx->size = sizeof (struct packet);
+    if (pp_post_send(ctx, 1) != 1) {
+        printf("%d%s", 1, "Error server send");
+        return 1;
+    }
+    if(pp_wait_completions(ctx, 1, 1)) {
+        printf("%s", "Error completions");
+        return 1;
+    }
+    return 0;
+}
+
+int receive_packet(struct pingpong_context *ctx) {
+    ctx->size = sizeof (struct packet);
+    if (pp_post_recv(ctx, 1) != 1) {
+        printf("%d%s", 1, "Error server send");
+        return 1;
+    }
+    if(pp_wait_completions(ctx, 1, 1)) {
+        printf("%s", "Error completions");
+        return 1;
+    }
+    return 0;
+}
+
 /*Connect to server*/
 int kv_open(char *servername, void **kv_handle) {
     return connect_main(servername,
@@ -825,13 +870,58 @@ int kv_open(char *servername, void **kv_handle) {
                         (struct pingpong_context **)kv_handle);
 }
 
+int eager_kv_set(void *kv_handle, const char *key, const char *value) {
+    struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+    ctx->size = sizeof (struct packet);
+    struct packet *pack = (struct packet*)ctx->buf;
+    pack->protocol_type = EAGER;
+    pack->request_type = SET;
+    strncpy(pack->key, key, sizeof(pack->key));
+    strncpy(pack->value, value, sizeof(pack->value));
+    if (send_packet(ctx)) {
+        return 1;
+    }
+    return 0;
+}
+
+int rendezvous_kv_set (void *kv_handle, const char *key, const char *value) {
+    struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+    ctx->size = sizeof (struct packet);
+    struct packet *pack = (struct packet*)ctx->buf;
+    pack->protocol_type = RENDEZVOUS;
+    pack->request_type = SET;
+    return 0;
+}
+
 int kv_set(void *kv_handle, const char *key, const char *value) {
+    unsigned packet_size = strlen(key) + strlen(value);
+    if (packet_size < BITS_4_KB) {
+        // EAGER PROTOCOL
+        return eager_kv_set(kv_handle, key, value);
+    }
+    // RENDEZVOUS PROTOCOL
+    return rendezvous_kv_set(kv_handle, key, value);
+
 
 }
 
 int kv_get(void *kv_handle, const char *key, char **value) {
-
+    struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+    struct packet *pack = (struct packet*)ctx->buf;
+    pack->request_type = GET;
+    strncpy(pack->key, key, sizeof(pack->key));
+    if (send_packet(ctx)) {
+        return 1;
+    }
+    if(receive_packet(ctx)) {
+        return 1;
+    }
+    struct packet *response_pack = (struct packet*)ctx->buf;
+    *value = malloc(strlen(response_pack->response_value) + 1);
+    strncpy(*value, response_pack->response_value, strlen(response_pack->response_value) + 1);
+    return 0;
 }
+
 /* Called after get() on value pointer */
 void kv_release(char *value) {
 
@@ -842,6 +932,81 @@ int kv_close(void *kv_handle) {
     return 0;
 }
 
+int server_handle_set_request(struct pingpong_context *ctx, struct packet *pack, struct Database *database) {
+    for (int i = 0; i < database->curr_size; i++) {
+        if(strcmp(database->map[i].key, pack->key) == 0) {
+            strncpy(database->map[i].value, pack->value, sizeof(pack->value));
+            return 0;
+        }
+    }
+    // The key is not in our database
+    strncpy(database->map[database->curr_size].key, pack->key, sizeof(pack->key));
+    strncpy(database->map[database->curr_size].value, pack->value, sizeof(pack->value));
+    database->curr_size++;
+    return 0;
+}
+
+
+int server_handle_get_request(struct pingpong_context *ctx, struct packet *pack, struct Database *database) {
+    struct packet *pack_response = (struct packet*)ctx->buf;
+    for (int i = 0; i < database->curr_size; i++) {
+        if(strcmp(database->map[i].key, pack->key) == 0){
+            strncpy(pack_response->response_value, database->map[i].value, sizeof(pack_response->value));
+            return send_packet(ctx);
+        }
+    }
+    strncpy(pack_response->response_value, "", sizeof(pack_response->response_value));
+    return send_packet(ctx);
+}
+
+int handle_server(void *kv_handle, struct Database *database, struct packet *pack) {
+    struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+    ctx->size = sizeof (struct packet);
+    if (pp_post_recv(ctx, 1) != 1) {
+        printf("%d%s", 1, "Error server received");
+        return 1;
+    }
+    pack = (struct packet*)ctx->buf;
+    if (pp_wait_completions(ctx, 1, 1)) {
+        printf("%s", "Error completions");
+        return 1;
+    }
+    switch (pack->request_type) {
+        case SET:
+            printf("New Set Request:\n\tKEY: %s\n\tVALUE: %s\n", pack->key, pack->value);
+            fflush( stdout );
+            return server_handle_set_request(ctx, pack, database);
+
+        case GET:
+            printf("New Get Request:\n\tKEY: %s\n", pack->key);
+            fflush( stdout );
+            return server_handle_get_request(ctx, pack, database);
+    }
+}
+
+void run_tests(void *kv_handle) {
+    char *value;
+    char * KEY_1 = "First_key";
+    char * VALUE_1 = "First value";
+    char * KEY_2 = "Second_key";
+    char * VALUE_2 = "Second value";
+    char * SOME_KEY = "Some key";
+    char * NULL_VALUE = "";
+    kv_set(kv_handle, KEY_1, VALUE_1);
+    kv_get(kv_handle, KEY_1, &value);
+    assert(strcmp(VALUE_1, value) == 0);
+    kv_set(kv_handle, KEY_2, VALUE_2);
+    kv_get(kv_handle, KEY_1, &value);
+    assert(strcmp(VALUE_1, value) == 0);
+    kv_get(kv_handle, KEY_2, &value);
+    assert(strcmp(VALUE_2, value) == 0);
+    kv_get(kv_handle, SOME_KEY, &value);
+    assert(strcmp(NULL_VALUE, value) == 0);
+    kv_get(kv_handle, SOME_KEY, &value);
+    assert(strcmp(NULL_VALUE, value) == 0);
+    printf("%s", "worked");
+    fflush(stdout);
+}
 
 
 int main(int argc, char **argv)
@@ -855,37 +1020,25 @@ int main(int argc, char **argv)
         usage(argv[0]);
         return 1;
     }
-    void *kv_handle;
 
     if (servername) {
+        void *kv_handle;
         kv_open(servername, &kv_handle);
-        struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
-        ctx->size = 1;
-        if (pp_post_send(ctx, 1) != 1) {
-            printf("%d%s", 1, "Error server send");
-        }
-        if(pp_wait_completions(ctx, 1, 1)) {
-            printf("%s", "Error completions");
-            return 1;
-        }
+//        sleep(5);
+        run_tests(kv_handle);
         while (1) {}
     }
     else {
+        struct Database *database;
+        void *kv_handle1;
+        void *kv_handle2;
+        database = malloc(sizeof (struct Database));
+        struct packet *pack;
+        kv_open(servername, &kv_handle1);
+//        kv_open(servername, &kv_handle2);
         while (1) {
-            kv_open(servername, &kv_handle);
-            struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
-            ctx->size = 1;
-            if (pp_post_recv(ctx, 1) != 1) {
-                printf("%d%s", 1, "Error server received");
-                return 1;
-            }
-            if (pp_wait_completions(ctx, 1, 1)) {
-                printf("%s", "Error completions");
-                return 1;
-            }
-            printf("%s\n", "message received");
-            fflush( stdout );
+            handle_server(kv_handle1, database, pack);
+//            handle_server(kv_handle2, database, pack);
         }
-
     }
 }
