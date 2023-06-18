@@ -650,7 +650,6 @@ int connect_main(char *servername, int argc, char *argv[], struct pingpong_conte
     int                      iters = 50000;
     int                      use_event = 0;
     int                      size = MAXIMUM_SIZE;
-    int                      warm_up_iters = 5000;
     int                      sl = 0;
     int                      gidx = -1;
     char                     gid[33];
@@ -1024,7 +1023,7 @@ int main(int argc, char **argv)
     if (servername) {
         void *kv_handle;
         kv_open(servername, &kv_handle);
-//        sleep(5);
+        sleep(5);
         run_tests(kv_handle);
         while (1) {}
     }
@@ -1034,11 +1033,10 @@ int main(int argc, char **argv)
         void *kv_handle2;
         database = malloc(sizeof (struct Database));
         struct packet *pack;
-        kv_open(servername, &kv_handle1);
-//        kv_open(servername, &kv_handle2);
+        kv_open(servername, &kv_handle[0]);
+        kv_open(servername, &kv_handle[1]);
         while (1) {
-            handle_server(kv_handle1, database, pack);
-//            handle_server(kv_handle2, database, pack);
+            handle_server((struct pingpong_context **) kv_handle, database, pack, 2);
         }
     }
 }
