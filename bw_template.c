@@ -65,12 +65,23 @@ enum PROTOCOL {
     EAGER,
     RENDEZVOUS
 };
+
+
+struct Rendezvous {
+    uint32_t rkey;
+    void * remote_addr;
+    unsigned long size;
+};
+
 struct packet {
     char value[BITS_4_KB];
     char response_value[BITS_4_KB];
     char key[BITS_4_KB];
     enum REQUEST request_type;
     enum PROTOCOL protocol_type;
+    struct Rendezvous rendezvous_get;
+    struct Rendezvous rendezvous_set;
+    struct Rendezvous rendezvous_set_response;
 };
 
 struct Database {
@@ -90,7 +101,7 @@ struct pingpong_context {
     struct ibv_cq		*cq;
     struct ibv_qp		*qp;
     void					*buf;
-    long int				size;
+    unsigned long		size;
     int				rx_depth;
     int				routs;
     struct ibv_port_attr	portinfo;
@@ -543,9 +554,10 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
     return i;
 }
 
-static int pp_post_send(struct pingpong_context *ctx, int n) {
+static int pp_post_send(struct pingpong_context *ctx, const char *local_ptr, void *remote_ptr, uint32_t remote_key,
+        enum ibv_wr_opcode opcode) {
     struct ibv_sge list = {
-            .addr	= (uintptr_t)ctx->buf,
+            .addr	= (uintptr_t) (local_ptr ? local_ptr : ctx->buf),
             .length = ctx->size,
             .lkey	= ctx->mr->lkey
     };
@@ -554,21 +566,18 @@ static int pp_post_send(struct pingpong_context *ctx, int n) {
             .wr_id	    = PINGPONG_SEND_WRID,
             .sg_list    = &list,
             .num_sge    = 1,
-            .opcode     = IBV_WR_SEND,
+            .opcode     = opcode,
             .send_flags = IBV_SEND_SIGNALED,
             .next       = NULL
     };
-    int i;
-    for (i = 0; i < n; ++i)
-        if (ibv_post_send(ctx->qp, &wr, &bad_wr))
-            break;
-
-    return i;
-//    return ibv_post_send(ctx->qp, &wr, &bad_wr);
+    if (remote_ptr) {
+        wr.wr.rdma.remote_addr = (uintptr_t) remote_ptr;
+        wr.wr.rdma.rkey = remote_key;
+    }
+    return ibv_post_send(ctx->qp, &wr, &bad_wr);
 }
 
-int pp_wait_completions(struct pingpong_context *ctx, int iters, long int message_size)
-{
+int pp_wait_completions(struct pingpong_context *ctx, int iters, long int message_size) {
     int rcnt = 0, scnt = 0;
     while (rcnt + scnt < iters) {
         struct ibv_wc wc[WC_BATCH];
@@ -583,8 +592,6 @@ int pp_wait_completions(struct pingpong_context *ctx, int iters, long int messag
 
         } while (ne < 1);
         for (i = 0; i < ne; ++i) {
-
-
             if (wc[i].status != IBV_WC_SUCCESS) {
                 fprintf(stderr, "Failed status %s (%d) for wr_id %d\n",
                         ibv_wc_status_str(wc[i].status),
@@ -837,7 +844,7 @@ int connect_main(char *servername, int argc, char *argv[], struct pingpong_conte
 
 int send_packet(struct pingpong_context *ctx) {
     ctx->size = sizeof (struct packet);
-    if (pp_post_send(ctx, 1) != 1) {
+    if (pp_post_send(ctx, NULL, NULL, 0, IBV_WR_SEND)) {
         printf("%d%s", 1, "Error server send");
         return 1;
     }
@@ -885,10 +892,14 @@ int eager_kv_set(void *kv_handle, const char *key, const char *value) {
 
 int rendezvous_kv_set (void *kv_handle, const char *key, const char *value) {
     struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
-    ctx->size = sizeof (struct packet);
     struct packet *pack = (struct packet*)ctx->buf;
     pack->protocol_type = RENDEZVOUS;
     pack->request_type = SET;
+    pack->rendezvous_set.size = strlen(value) + 1;
+    if(send_packet(ctx) || receive_packet(ctx)) {
+        return 1;
+    }
+
     return 0;
 }
 
@@ -900,8 +911,6 @@ int kv_set(void *kv_handle, const char *key, const char *value) {
     }
     // RENDEZVOUS PROTOCOL
     return rendezvous_kv_set(kv_handle, key, value);
-
-
 }
 
 int kv_get(void *kv_handle, const char *key, char **value) {
@@ -934,7 +943,12 @@ int kv_close(void *kv_handle) {
 int server_handle_set_request(struct pingpong_context *ctx, struct packet *pack, struct Database *database) {
     for (int i = 0; i < database->curr_size; i++) {
         if(strcmp(database->map[i].key, pack->key) == 0) {
-            strncpy(database->map[i].value, pack->value, sizeof(pack->value));
+            if (pack->protocol_type == EAGER) {
+                // EAGER PROTOCOL
+                strncpy(database->map[i].value, pack->value, sizeof(pack->value));
+                return 0;
+            }
+            // RENDEZVOUS PROTOCOL
             return 0;
         }
     }
@@ -958,29 +972,49 @@ int server_handle_get_request(struct pingpong_context *ctx, struct packet *pack,
     return send_packet(ctx);
 }
 
-int handle_server(void *kv_handle, struct Database *database, struct packet *pack) {
-    struct pingpong_context *ctx = (struct pingpong_context*) kv_handle;
+int receive_packet_async(struct pingpong_context *ctx) {
     ctx->size = sizeof (struct packet);
     if (pp_post_recv(ctx, 1) != 1) {
-        printf("%d%s", 1, "Error server received");
+        printf("%d%s", 1, "Error server receive");
         return 1;
     }
-    pack = (struct packet*)ctx->buf;
-    if (pp_wait_completions(ctx, 1, 1)) {
-        printf("%s", "Error completions");
-        return 1;
-    }
+    return 0;
+}
+
+int handle_request(struct pingpong_context *ctx, struct Database *database, struct packet *pack) {
     switch (pack->request_type) {
         case SET:
             printf("New Set Request:\n\tKEY: %s\n\tVALUE: %s\n", pack->key, pack->value);
             fflush( stdout );
             return server_handle_set_request(ctx, pack, database);
-
         case GET:
             printf("New Get Request:\n\tKEY: %s\n", pack->key);
             fflush( stdout );
             return server_handle_get_request(ctx, pack, database);
     }
+}
+
+int handle_server(struct pingpong_context *ctx[2], struct Database *database, int number_of_clients) {
+    for (int curr_client = 0; curr_client < number_of_clients; curr_client++) {
+        if(receive_packet_async(ctx[curr_client])) {
+            return 1;
+        }
+    }
+    while(1) {
+        for (int curr_client = 0; curr_client < number_of_clients; curr_client++) {
+            struct ibv_wc wc[WC_BATCH];
+            int ne = ibv_poll_cq(ctx[curr_client]->cq, WC_BATCH, wc);
+            if (ne < 0) {
+                fprintf(stderr, "poll CQ failed %d\n", ne);
+                return 1;
+            }
+            if (ne >= 1) {
+                handle_request(ctx[curr_client], database, ctx[curr_client]->buf);
+                receive_packet_async(ctx[curr_client]);
+            }
+        }
+    }
+
 }
 
 void run_tests(void *kv_handle) {
@@ -1029,8 +1063,7 @@ int main(int argc, char **argv)
     }
     else {
         struct Database *database;
-        void *kv_handle1;
-        void *kv_handle2;
+        void *kv_handle[NUMBER_OF_CLIENTS];
         database = malloc(sizeof (struct Database));
         struct packet *pack;
         kv_open(servername, &kv_handle[0]);
