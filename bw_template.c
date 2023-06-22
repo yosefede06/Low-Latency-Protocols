@@ -31,6 +31,7 @@
  * SOFTWARE.
  */
 
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +48,11 @@
 #include <time.h>
 #include <math.h>
 #include <infiniband/verbs.h>
+
+// ------------------ IMPORT TESTS ------------------
+#include "application.h"
+#include "tests.c"
+// ------------------ IMPORT TESTS ------------------
 
 #define WC_BATCH (1)
 #define MAXIMUM_SIZE (1048576L)
@@ -77,6 +83,7 @@ struct packet {
     char value[BITS_4_KB];
     char response_value[BITS_4_KB];
     char key[BITS_4_KB];
+    char * bigValue;
     enum REQUEST request_type;
     enum PROTOCOL protocol_type;
     struct Rendezvous rendezvous_get;
@@ -561,7 +568,7 @@ static int pp_post_send(struct pingpong_context *ctx, const char *local_ptr, voi
             .length = ctx->size,
             .lkey	= ctx->mr->lkey
     };
-
+   ;
     struct ibv_send_wr *bad_wr, wr = {
             .wr_id	    = PINGPONG_SEND_WRID,
             .sg_list    = &list,
@@ -574,7 +581,8 @@ static int pp_post_send(struct pingpong_context *ctx, const char *local_ptr, voi
         wr.wr.rdma.remote_addr = (uintptr_t) remote_ptr;
         wr.wr.rdma.rkey = remote_key;
     }
-    return ibv_post_send(ctx->qp, &wr, &bad_wr);
+    int a = ibv_post_send(ctx->qp, &wr, &bad_wr);
+    return a;
 }
 
 int pp_wait_completions(struct pingpong_context *ctx, int iters, long int message_size) {
@@ -895,11 +903,37 @@ int rendezvous_kv_set (void *kv_handle, const char *key, const char *value) {
     struct packet *pack = (struct packet*)ctx->buf;
     pack->protocol_type = RENDEZVOUS;
     pack->request_type = SET;
-    pack->rendezvous_set.size = strlen(value) + 1;
-    if(send_packet(ctx) || receive_packet(ctx)) {
+    size_t size_value = strlen(value) + 1;
+    pack->rendezvous_set.size = size_value;
+    strcpy(pack->key,key);
+    if (send_packet(ctx)) {
         return 1;
     }
+    if(receive_packet(ctx)) {
+        return 1;
+    }
+    struct packet *pack_response = (struct packet*)ctx->buf;
 
+    struct ibv_mr* ctxMR = (struct ibv_mr*)ctx->mr;
+    char * hey =  malloc( size_value + 1);
+    strncpy(hey, value, size_value);
+    struct ibv_mr* clientMR = ibv_reg_mr(ctx->pd, hey,
+                                         size_value, IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+
+    ctx->mr = clientMR;
+    ctx->size = size_value;
+    pp_post_send(ctx,
+                 hey,
+                 pack_response->rendezvous_set.remote_addr,
+                 pack_response->rendezvous_set.rkey,
+                 IBV_WR_RDMA_WRITE);
+
+    if(pp_wait_completions(ctx, 1, 1)) {
+        printf("%s", "Error completions");
+        return 1;
+    };
+    ctx->mr = (struct ibv_mr*) ctxMR;
+    ibv_dereg_mr(clientMR);
     return 0;
 }
 
@@ -940,6 +974,21 @@ int kv_close(void *kv_handle) {
     return 0;
 }
 
+void handle_server_set_request_rendezvous(struct pingpong_context * ctx,
+        struct packet * pack, struct packet * packet_db) {
+    struct packet * pack_response = (struct packet*) ctx->buf;
+//    free(packet_db->bigValue);
+    packet_db->bigValue = calloc(pack->rendezvous_set.size, 1);
+    packet_db->protocol_type = RENDEZVOUS;
+    struct ibv_mr* mr_create = ibv_reg_mr(ctx->pd, packet_db->bigValue, pack->rendezvous_set.size,
+            IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
+    pack_response->request_type = SET;
+    pack_response->protocol_type = RENDEZVOUS;
+    pack_response->rendezvous_set.rkey = mr_create->rkey;
+    pack_response->rendezvous_set.remote_addr = mr_create->addr;
+    send_packet(ctx);
+}
+
 int server_handle_set_request(struct pingpong_context *ctx, struct packet *pack, struct Database *database) {
     for (int i = 0; i < database->curr_size; i++) {
         if(strcmp(database->map[i].key, pack->key) == 0) {
@@ -949,16 +998,23 @@ int server_handle_set_request(struct pingpong_context *ctx, struct packet *pack,
                 return 0;
             }
             // RENDEZVOUS PROTOCOL
+            handle_server_set_request_rendezvous(ctx, pack, &(database->map[i]));
             return 0;
         }
     }
     // The key is not in our database
     strncpy(database->map[database->curr_size].key, pack->key, sizeof(pack->key));
-    strncpy(database->map[database->curr_size].value, pack->value, sizeof(pack->value));
+    if (pack->protocol_type == EAGER) {
+        // EAGER PROTOCOL
+        strncpy(database->map[database->curr_size].value, pack->value, sizeof(pack->value));
+        database->curr_size++;
+        return 0;
+    }
+    // RENDEZVOUS PROTOCOL
+    handle_server_set_request_rendezvous(ctx, pack, &(database->map[database->curr_size]));
     database->curr_size++;
     return 0;
 }
-
 
 int server_handle_get_request(struct pingpong_context *ctx, struct packet *pack, struct Database *database) {
     struct packet *pack_response = (struct packet*)ctx->buf;
@@ -968,6 +1024,7 @@ int server_handle_get_request(struct pingpong_context *ctx, struct packet *pack,
             return send_packet(ctx);
         }
     }
+    pack_response->protocol_type = EAGER;
     strncpy(pack_response->response_value, "", sizeof(pack_response->response_value));
     return send_packet(ctx);
 }
@@ -984,12 +1041,17 @@ int receive_packet_async(struct pingpong_context *ctx) {
 int handle_request(struct pingpong_context *ctx, struct Database *database, struct packet *pack) {
     switch (pack->request_type) {
         case SET:
-            printf("New Set Request:\n\tKEY: %s\n\tVALUE: %s\n", pack->key, pack->value);
-            fflush( stdout );
+            if (pack->protocol_type == EAGER) {
+                printf("New Set Request:\n\tKEY: %s\n\tVALUE: %s\n", pack->key, pack->value);
+            }
+            else {
+                printf("New Set Request:\n\tKEY: %s\n", pack->key);
+            }
+            fflush( stdout);
             return server_handle_set_request(ctx, pack, database);
         case GET:
             printf("New Get Request:\n\tKEY: %s\n", pack->key);
-            fflush( stdout );
+            fflush( stdout);
             return server_handle_get_request(ctx, pack, database);
     }
 }
@@ -1034,10 +1096,21 @@ void run_tests(void *kv_handle) {
     kv_get(kv_handle, KEY_2, &value);
     assert(strcmp(VALUE_2, value) == 0);
     kv_get(kv_handle, SOME_KEY, &value);
+    printf("%s\n", value);
     assert(strcmp(NULL_VALUE, value) == 0);
     kv_get(kv_handle, SOME_KEY, &value);
     assert(strcmp(NULL_VALUE, value) == 0);
-    printf("%s", "worked");
+    // RENDEZVOUS PROTOCOL TEST
+    char * long_key = "rendezvous_key";
+    char * long_value = malloc(32000 * 2);
+    for (int i = 0; i < 32000 * 2; i++) {
+        long_value[i] = 'a';
+    }
+    kv_set(kv_handle, long_key, long_value);
+    kv_get(kv_handle, long_key, &value);
+    assert(strcmp(long_value, value) == 0);
+    free(long_value);
+    printf("%s", "ALL TESTS PASSED!\n");
     fflush(stdout);
 }
 
@@ -1056,10 +1129,12 @@ int main(int argc, char **argv)
 
     if (servername) {
         void *kv_handle;
-        kv_open(servername, &kv_handle);
-        sleep(5);
-        run_tests(kv_handle);
-        while (1) {}
+        testConnection(servername, &kv_handle);
+        testSetAndGet(kv_handle);
+        testGetNonExistentKey(kv_handle);
+        testReleaseValueMemory(kv_handle);
+        testMultipleSetAndGet(kv_handle);
+        testLargeSetValue(kv_handle);
     }
     else {
         struct Database *database;
