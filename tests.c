@@ -212,6 +212,7 @@ void testZeroCopyBehavior(char * serverName) {
     }
 }
 
+
 // Test Case 9: Test concurrent SET requests from multiple clients
 void testConcurrentSetRequests(char * serverName) {
     // Client 1
@@ -253,43 +254,23 @@ void testConcurrentSetRequests(char * serverName) {
     }
 }
 
-// Test Case 10: Test parallel operations handling by the server
-void testParallelOperations(char * serverName) {
-    // Client 1
-    void *kv_handle1 = NULL;
-    int result1 = kv_open(serverName, &kv_handle1);
-    if (kv_handle1 != NULL) {
-        const char *key1 = "key1";
-        const char *value1 = "value1";
-
-        result1 = kv_set(kv_handle1, key1, value1);
-        if (result1 == 0) {
-            printf("Client 1: SET request successful.\n");
-        } else {
-            printf("Client 1: SET request failed.\n");
-        }
-
-        kv_close(kv_handle1);
-    } else {
-        printf("Client 1: Connection failed.\n");
-    }
-
-    // Client 2
-    void *kv_handle2 = NULL;
-    int result2 = kv_open(serverName, &kv_handle2);
-    if (kv_handle2 != NULL) {
-        const char *key2 = "key2";
-        const char *value2 = "value2";
-
-        result2 = kv_set(kv_handle2, key2, value2);
-        if (result2 == 0) {
-            printf("Client 2: SET request successful.\n");
-        } else {
-            printf("Client 2: SET request failed.\n");
-        }
-
-        kv_close(kv_handle2);
-    } else {
-        printf("Client 2: Connection failed.\n");
-    }
+/**
+ * TO RUN THIS TEST CONNECT X CLIENTS IN T SECONDS
+ * @param servername
+ */
+void run_tests_multiple_clients(char * servername) {
+    void *kv_handle;
+    testConnection(servername, &kv_handle);
+    sleep(5);
+    run_tests_helper(kv_handle);
+    sleep(1);
+    run_tests_helper(kv_handle);
+    sleep(1);
+    run_tests_helper(kv_handle);
+    sleep(1);
+    run_tests_helper(kv_handle);
+    sleep(1);
+    run_tests_helper(kv_handle);
+    sleep(1);
+    run_tests_helper(kv_handle);
 }
