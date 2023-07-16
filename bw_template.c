@@ -50,16 +50,15 @@
 #include <infiniband/verbs.h>
 
 // ------------------ IMPORT TESTS ------------------
-#include "application.h"
 #include "tests.c"
 // ------------------ IMPORT TESTS ------------------
 
 #define WC_BATCH (1)
 #define MAXIMUM_SIZE (1048576L)
-#define BITS_4_KB (32000)
+#define BITS_4_KB (4096)
 #define DATABASE_INITIAL_CAPACITY (4)
 #define DATABASE_FACTOR_CAPACITY (2)
-#define NUMBER_OF_CLIENTS (2)
+#define NUMBER_OF_CLIENTS (1)
 #define MAXIMUM_HANDLE_REQUESTS_BUFFERS (5)
 int MAXIMUM_HANDLE = MAXIMUM_HANDLE_REQUESTS_BUFFERS;
 
@@ -1258,46 +1257,70 @@ int get_servername(char ** servername, int argc, char **argv) {
 }
 
 void test_performance(void *kv_handle) {
-    long double iters = 100;
-    long double warmp_up_iters = 10;
-    char change_char = 'b';
+    long double real_iters = 100;
+    long double warmp_up_iters = 50;
+    char key[12];
+    printf("\n%s\n\n", "+++++++++++++++ SET THROUGHPUT MEASURE +++++++++++++++");
+    printf("%s\n", "------- Eager Protocol -------");
     for (long int message_size = 1;  message_size <= MAXIMUM_SIZE; message_size *= 2) {
-        const char *key = "largeh_y";
+        if (message_size == BITS_4_KB) {
+            printf("%s\n", "------- Rendezvous Protocol -------");
+        }
+        snprintf(key, sizeof (key), "%ld", message_size);
         char * largeValue = calloc(message_size, sizeof(char));
         memset(largeValue, 'a', message_size - 1);
-        largeValue[0] = change_char++;
-        char *retrievedValue = NULL;
         clock_t start_time;
-        for (int i = 0; i < iters; i++) {
+        for (int i = 0; i < real_iters + warmp_up_iters; i++) {
             if (i == warmp_up_iters) {
                 start_time = clock();
             }
             kv_set(kv_handle, key, largeValue);
+        }
+        clock_t end_time = clock();
+        long double diff_time = (long double) (end_time - start_time) / CLOCKS_PER_SEC;
+        long double gb_unit = real_iters * message_size / pow(1024, 3);
+        long double throughput = gb_unit / diff_time;
+        printf("%ld\t%Lf\t%s\n", message_size, throughput, "Gigabytes/Second");
+    }
+    printf("\n%s\n\n", "+++++++++++++++ GET THROUGHPUT MEASURE +++++++++++++++");
+    printf("%s\n", "------- Eager Protocol -------");
+    for (long int message_size = 1;  message_size <= MAXIMUM_SIZE; message_size *= 2) {
+        if (message_size == BITS_4_KB) {
+            printf("%s\n", "------- Rendezvous Protocol -------");
+        }
+        snprintf(key, sizeof (key), "%ld", message_size);
+        char * largeValue = calloc(message_size, sizeof(char));
+        memset(largeValue, 'a', message_size - 1);
+        char *retrievedValue = NULL;
+        clock_t start_time;
+        for (int i = 0; i < real_iters + warmp_up_iters; i++) {
+            if (i == warmp_up_iters) {
+                start_time = clock();
+            };
             kv_get(kv_handle, key, &retrievedValue);
             if (!compareStrings(retrievedValue, largeValue)) {
                 printf(RED "THROUGHPUT: GET request for large value failed.\n" RESET);
                 exit(1);
             }
-            else {
-//                printf(GREEN "THROUGHPUT: GET request for large value successful.\n" RESET);
-            }
         }
         free(largeValue);
         clock_t end_time = clock();
         long double diff_time = (long double) (end_time - start_time) / CLOCKS_PER_SEC;
-        long double gb_unit = iters * message_size / pow(1024, 3);
-        long double throughput = diff_time / (iters - warmp_up_iters);
+        long double gb_unit = real_iters * message_size / pow(1024, 3);
+        long double throughput = gb_unit / diff_time;
         printf("%ld\t%Lf\t%s\n", message_size, throughput, "Gigabytes/Second");
     }
 }
 
 int run_client (char * servername) {
     // CODE TEST - ONE CLIENT
-//    run_tests_one_client(servername);
+    run_tests_one_client(servername);
     // CODE TEST - MULTIPLE CLIENTS
-    run_tests_multiple_clients(servername);
+//    run_tests_multiple_clients(servername);
     // THROUGHPUT TEST
-    // test_performance(kv_handle);
+//    void *kv_handle;
+//    kv_open(servername, &kv_handle);
+//    test_performance(kv_handle);
     return 0;
 }
 
