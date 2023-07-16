@@ -14,16 +14,7 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="7142bb2e-cf7d-46b4-aaf0-1cb373558390" name="Changes" comment="de">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bw_template.c" beforeDir="false" afterPath="$PROJECT_DIR$/bw_template.c" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/.ninja_deps" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/.ninja_deps" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/.ninja_log" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/.ninja_log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/Low_Latency_Protocols.dir/bw_template.c.o" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/Low_Latency_Protocols.dir/bw_template.c.o" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/Testing/Temporary/LastTest.log" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/Testing/Temporary/LastTest.log" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/server" beforeDir="false" afterPath="$PROJECT_DIR$/server" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests.c" beforeDir="false" afterPath="$PROJECT_DIR$/tests.c" afterDir="false" />
-    </list>
+    <list default="true" id="7142bb2e-cf7d-46b4-aaf0-1cb373558390" name="Changes" comment="" />
     <list id="6fa1b394-089c-438d-b400-a3196d8881b2" name="Changes by user" comment="">
       <change beforePath="$PROJECT_DIR$/Makefile" beforeDir="false" afterPath="$PROJECT_DIR$/Makefile" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bww_templace.c" beforeDir="false" />
@@ -41,55 +32,6 @@
   <component name="ExecutionTargetManager" SELECTED_TARGET="CMakeBuildProfile:Debug" />
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
-  </component>
-  <component name="LineStatusTrackerManager">
-    <file path="$PROJECT_DIR$/tests.c">
-      <ranges>
-        <range start1="5" end1="6" start2="5" end2="5" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="43" end1="44" start2="42" end2="43" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="55" end1="56" start2="54" end2="55" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="59" end1="60" start2="58" end2="59" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="61" end1="62" start2="60" end2="61" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="65" end1="66" start2="64" end2="65" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="68" end1="69" start2="67" end2="68" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="80" end1="81" start2="79" end2="80" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="82" end1="83" start2="81" end2="82" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="85" end1="86" start2="84" end2="85" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="97" end1="98" start2="96" end2="97" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="99" end1="100" start2="98" end2="99" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="101" end1="102" start2="100" end2="101" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="104" end1="105" start2="103" end2="104" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="119" end1="120" start2="118" end2="119" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="121" end1="122" start2="120" end2="121" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="123" end1="124" start2="122" end2="122" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="126" end1="127" start2="124" end2="125" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="128" end1="129" start2="126" end2="127" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="134" end1="135" start2="132" end2="133" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="136" end1="137" start2="134" end2="136" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="141" end1="141" start2="140" end2="141" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="143" end1="144" start2="143" end2="144" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="145" end1="146" start2="145" end2="146" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="149" end1="150" start2="149" end2="150" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="158" end1="162" start2="158" end2="161" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="164" end1="165" start2="163" end2="164" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="166" end1="167" start2="165" end2="166" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="172" end1="173" start2="171" end2="172" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="174" end1="175" start2="173" end2="174" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="178" end1="179" start2="177" end2="178" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="183" end1="187" start2="182" end2="185" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="188" end1="193" start2="186" end2="191" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="195" end1="196" start2="193" end2="194" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="197" end1="198" start2="195" end2="196" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="199" end1="204" start2="197" end2="200" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="205" end1="206" start2="201" end2="202" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="207" end1="209" start2="203" end2="203" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="210" end1="211" start2="204" end2="205" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="213" end1="213" start2="207" end2="208" changelist="7142bb2e-cf7d-46b4-aaf0-1cb373558390" />
-        <range start1="214" end1="234" start2="209" end2="221" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="235" end1="253" start2="222" end2="226" changelist="6fa1b394-089c-438d-b400-a3196d8881b2" />
-        <range start1="255" end1="294" start2="228" end2="247" changelist="7142bb2e-cf7d-46b4-aaf0-1cb373558390" />
-      </ranges>
-    </file>
   </component>
   <component name="MarkdownSettingsMigration">
     <option name="stateVersion" value="1" />
@@ -178,7 +120,7 @@
       <workItem from="1688452322990" duration="15333000" />
       <workItem from="1688469992597" duration="3000" />
       <workItem from="1688473907294" duration="51000" />
-      <workItem from="1689503398940" duration="1317000" />
+      <workItem from="1689503398940" duration="1789000" />
     </task>
     <task id="LOCAL-00001" summary="de">
       <created>1686742247057</created>
@@ -222,7 +164,14 @@
       <option name="project" value="LOCAL" />
       <updated>1687443258706</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="de">
+      <created>1689504729607</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1689504729607</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
