@@ -587,7 +587,6 @@ static int pp_post_send(struct pingpong_context *ctx, const char *local_ptr, voi
             .length = ctx->size,
             .lkey	= ctx->mr[ctx->currBuffer]->lkey
     };
-    ;
     struct ibv_send_wr *bad_wr, wr = {
             .wr_id	    = PINGPONG_SEND_WRID,
             .sg_list    = &list,
@@ -932,24 +931,32 @@ int rendezvous_kv_set (void *kv_handle, const char *key, const char *value) {
     struct packet *pack_response = (struct packet*)ctx->buf[ctx->currBuffer];
 
     struct ibv_mr* ctxMR = (struct ibv_mr*)ctx->mr[ctx->currBuffer];
-    char * hey =  malloc( size_value + 1);
-    strncpy(hey, value, size_value);
-    struct ibv_mr* clientMR = ibv_reg_mr(ctx->pd, hey,
+    struct ibv_mr* clientMR = ibv_reg_mr(ctx->pd, (char *) value,
                                          size_value, IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_LOCAL_WRITE);
 
     ctx->mr[ctx->currBuffer] = clientMR;
     ctx->size = size_value;
     pp_post_send(ctx,
-                 hey,
+                 value,
                  pack_response->rendezvous_set.remote_addr,
                  pack_response->rendezvous_set.rkey,
                  IBV_WR_RDMA_WRITE);
-
     if(pp_wait_completions(ctx, 1)) {
         printf("%s", "Error completions");
         return 1;
     };
     ctx->mr[ctx->currBuffer] = (struct ibv_mr*) ctxMR;
+    // ---- FIN (ACK TO SERVER) -----
+    ctx->size = 1;
+    if (pp_post_send(ctx, NULL, NULL, 0, IBV_WR_SEND)) {
+        printf("%d%s", 1, "Error server send");
+        return 1;
+    }
+    if(pp_wait_completions(ctx, 1)) {
+        printf("%s", "Error completions");
+        return 1;
+    }
+    // --------------------------
     ibv_dereg_mr(clientMR);
     return 0;
 }
@@ -1054,6 +1061,17 @@ void handle_server_set_request_rendezvous(struct pingpong_context * ctx,
     pack_response->rendezvous_set.remote_addr = mr_create->addr;
     ctx->currBuffer = buf_id;
     send_packet(ctx);
+    // WAIT FOR FIN
+    ctx->size = 1;
+    if (pp_post_recv(ctx, 1) != 1) {
+        printf("%d%s", 1, "Error server send");
+        return;
+    }
+    if(pp_wait_completions(ctx, 1)) {
+        printf("%s", "Error completions");
+        return;
+    }
+    // WAIT FOR FIN
 }
 
 int server_handle_set_request(struct pingpong_context *ctx, struct packet *pack, struct Database *database,
